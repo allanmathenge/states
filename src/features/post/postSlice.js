@@ -6,7 +6,7 @@ const POSTS_URL = "https://jsonplaceholder.typicode.com/posts";
 
 const initialState = {
   posts: [],
-  status: "idle",
+  status: "idle", //succeeded, rejected, fulfilled, failed
   error: null,
 };
 
@@ -23,7 +23,20 @@ export const addNewPost = createAsyncThunk(
   "posts/addNewPost",
   async (initialPost) => {
     try {
-      const response = await axios.post(POSTS_URL);
+      const response = await axios.post(POSTS_URL, initialPost);
+      return response.data;
+    } catch (error) {
+      return error.message;
+    }
+  }
+);
+
+export const updatePost = createAsyncThunk(
+  "posts/updatePost",
+  async (initialPost) => {
+    const { id } = initialPost;
+    try {
+      const response = await axios.put(`${POSTS_URL}/${id}`, initialPost);
       return response.data;
     } catch (error) {
       return error.message;
@@ -73,6 +86,7 @@ const postSlice = createSlice({
       })
       .addCase(fetchPosts.fulfilled, (state, action) => {
         state.status = "succeeded";
+
         // Adding date and rections
         let min = 1;
         const loadedPosts = action.payload.map((post) => {
@@ -93,6 +107,8 @@ const postSlice = createSlice({
         state.status = "failed";
         state.error = action.error.message;
       })
+
+      //Add new post
       .addCase(addNewPost.fulfilled, (state, action) => {
         action.payload.userId = Number(action.payload.userId);
         action.payload.date = new Date().toISOString();
@@ -104,6 +120,19 @@ const postSlice = createSlice({
           coffee: 0,
         };
         state.posts.push(action.payload);
+      })
+
+      //Update post
+      .addCase(updatePost.fulfilled, (state, action) => {
+        if (!action.payload?.id) {
+          console.log("Update could not complete");
+          console.log(action.payload);
+          return;
+        }
+        const { id } = action.payload;
+        action.payload.date = new Date().toISOString();
+        const posts = state.posts.filter((post) => post.id !== id);
+        state.posts = [...posts, action.payload];
       });
   },
 });
@@ -111,6 +140,9 @@ const postSlice = createSlice({
 export const selectAllPosts = (state) => state.posts.posts;
 export const getPostsStatus = (state) => state.posts.status;
 export const getPostsError = (state) => state.posts.error;
+
+export const selectPostById = (state, postId) =>
+  state.posts.posts.find((post) => post.id === postId);
 
 export const { reactionAdded } = postSlice.actions;
 
