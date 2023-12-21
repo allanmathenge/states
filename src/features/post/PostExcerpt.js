@@ -3,7 +3,12 @@ import TimeAgo from "../post/TimeAgo";
 import ReactionButtons from "./ReactionButtons";
 import { Link } from "react-router-dom";
 
-const PostExcerpt = ({ post }) => {
+import { useSelector } from "react-redux";
+import { selectPostById } from "./postSlice";
+
+const PostExcerpt = ({ postId }) => {
+  const post = useSelector((state) => selectPostById(state, postId));
+
   return (
     <article>
       <h2>{post.title}</h2>
