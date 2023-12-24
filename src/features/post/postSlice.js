@@ -1,175 +1,170 @@
-import {
-  createSlice,
-  createAsyncThunk,
-  createSelector,
-  createEntityAdapter,
-} from "@reduxjs/toolkit";
+import { createSelector, createEntityAdapter } from "@reduxjs/toolkit";
 import { sub } from "date-fns";
-import axios from "axios";
-
-const POSTS_URL = "https://jsonplaceholder.typicode.com/posts";
+import { apiSlice } from "../api/apiSlice";
 
 const postsAdapter = createEntityAdapter({
   sortComparer: (a, b) => b.date.localeCompare(a.date),
 });
 
-const initialState = postsAdapter.getInitialState({
-  status: "idle", //'idle' | 'loading' | 'succeeded' | 'failed'
-  error: null,
-});
+const initialState = postsAdapter.getInitialState();
 
-export const fetchPosts = createAsyncThunk("posts/fetchPosts", async () => {
-  try {
-    const response = await axios.get(POSTS_URL);
-    return response.data;
-  } catch (error) {
-    return error.message;
-  }
-});
-
-export const addNewPost = createAsyncThunk(
-  "posts/addNewPost",
-  async (initialPost) => {
-    try {
-      const response = await axios.post(POSTS_URL, initialPost);
-      return response.data;
-    } catch (error) {
-      return error.message;
-    }
-  }
-);
-
-export const updatePost = createAsyncThunk(
-  "posts/updatePost",
-  async (initialPost) => {
-    const { id } = initialPost;
-    try {
-      const response = await axios.put(`${POSTS_URL}/${id}`, initialPost);
-      return response.data;
-    } catch (error) {
-      //return error.message;
-      return initialPost; //Redux test
-    }
-  }
-);
-
-export const deletePost = createAsyncThunk(
-  "posts/deletePost",
-  async (initialPost) => {
-    const { id } = initialPost;
-
-    try {
-      const response = await axios.delete(`${POSTS_URL}/${id}`);
-      if (response?.status === 200) return initialPost;
-      return `${response?.status} : ${response.statusText}`;
-    } catch (error) {
-      return error.message;
-    }
-  }
-);
-
-const postSlice = createSlice({
-  name: "posts",
-  initialState,
-  reducers: {
-    reactionAdded(state, action) {
-      const { postId, reaction } = action.payload;
-      const existingPost = state.entities[postId];
-      if (existingPost) {
-        existingPost.reactions[reaction] += 1;
-      }
-    },
-  },
-  extraReducers(builder) {
-    builder
-      .addCase(fetchPosts.pending, (state, action) => {
-        state.status = "loading";
-      })
-      .addCase(fetchPosts.fulfilled, (state, action) => {
-        state.status = "succeeded";
-
-        // Adding date and rections
+export const extendedApiSlice = apiSlice.injectEndpoints({
+  endpoints: (builder) => ({
+    getPosts: builder.query({
+      query: () => "/posts",
+      transformResponse: (responseData) => {
         let min = 1;
-        const loadedPosts = action.payload.map((post) => {
-          post.date = sub(new Date(), { minutes: min-- }).toISOString();
-          post.reactions = {
+        const loadedPosts = responseData.map((post) => {
+          if (!post?.date)
+            post.date = sub(new Date(), { minutes: min++ }).toISOString();
+          if (!post?.reactions)
+            post.reactions = {
+              thumbsUp: 0,
+              wow: 0,
+              heart: 0,
+              rocket: 0,
+              coffee: 0,
+            };
+          return post;
+        });
+        return postsAdapter.setAll(initialState, loadedPosts);
+      },
+      providesTags: (result, error, arg) => [
+        { type: "Post", id: "LIST" },
+        ...result.ids.map((id) => ({ type: "Post", id })),
+      ],
+    }),
+
+    getPostsByUserId: builder.query({
+      query: (id) => `/posts/?userId=${id}`,
+      transformResponse: (responseData) => {
+        let min = 1;
+        const loadedPosts = responseData.map((post) => {
+          if (!post?.date)
+            post.date = sub(new Date(), { minutes: min++ }).toISOString();
+          if (!post?.reactions)
+            post.reactions = {
+              thumbsUp: 0,
+              wow: 0,
+              heart: 0,
+              rocket: 0,
+              coffee: 0,
+            };
+          return post;
+        });
+        return postsAdapter.setAll(initialState, loadedPosts);
+      },
+      providesTags: (result, error, arg) => {
+        return [...result.ids.map((id) => ({ type: "post", id }))];
+      },
+    }),
+
+    addNewPost: builder.mutation({
+      query: (initialPost) => ({
+        url: "/posts",
+        method: "POST",
+        body: {
+          ...initialPost,
+          userId: Number(initialPost.userId),
+          date: new Date().toISOString(),
+          reactions: {
             thumbsUp: 0,
             wow: 0,
             heart: 0,
             rocket: 0,
             coffee: 0,
-          };
-          return post;
-        });
+          },
+        },
+      }),
+      invalidateTags: [{ type: "Post", id: "LIST" }],
+    }),
 
-        // Add any fetched posts to the array
+    updatePost: builder.mutation({
+      query: (initialPost) => ({
+        url: `/posts/${initialPost.id}`,
+        method: "PUT",
+        body: {
+          ...initialState,
+          date: new Date().toISOString(),
+        },
+      }),
+      invalidateTags: (result, error, arg) => [{ type: "Post", id: arg.id }],
+    }),
 
-        postsAdapter.upsertMany(state, loadedPosts);
+    deletePost: builder.mutation({
+      query: ({ id }) => ({
+        url: `/posts/${id}`,
+        method: "DELETE",
+        body: { id },
+      }),
+      invalidateTags: (result, error, arg) => [{ type: "Post", id: arg.id }],
+    }),
 
-        // state.posts = state.posts.concat(loadedPosts)
-      })
-      .addCase(fetchPosts.rejected, (state, action) => {
-        state.status = "failed";
-        state.error = action.error.message;
-      })
+    // Optimistic Update - we update the UI before the data is sent/received to/by the API
 
-      //Add new post
-      .addCase(addNewPost.fulfilled, (state, action) => {
-        action.payload.userId = Number(action.payload.userId);
-        action.payload.date = new Date().toISOString();
-        action.payload.reactions = {
-          thumbsUp: 0,
-          wow: 0,
-          heart: 0,
-          rocket: 0,
-          coffee: 0,
-        };
+    addReaction: builder.mutation({
+      query: ({ postId, reactions }) => ({
+        url: `posts/${postId}`,
+        method: "PATCH",
+        // In real app, we'd need to base this on user ID so that a user can't do the same reaction more than once
+        body: { reactions },
+      }),
+      async onQueryStarted(
+        { postId, reactions },
+        { dispatch, queryFulfilled }
+      ) {
+        // `updateQueryData` requires the endpoint name and cache key arguments, so it knows which piece of cache state to update
 
-        //state.posts.push(action.payload);
+        const patchResult = dispatch(
+          extendedApiSlice.util.updateQueryData(
+            "getPosts",
+            undefined,
+            (draft) => {
+              // The draft is Immer-wrapped and can be "mutated" like createSlice
 
-        postsAdapter.addOne(state, action.payload);
-      })
-
-      //Update post
-      .addCase(updatePost.fulfilled, (state, action) => {
-        if (!action.payload?.id) {
-          console.log("Update could not complete");
-          console.log(action.payload);
-          return;
+              const post = draft.entities[postId];
+              if (post) post.reactions = reactions;
+            }
+          )
+        );
+        try {
+          await queryFulfilled;
+        } catch {
+          patchResult.undo();
         }
-        action.payload.date = new Date().toISOString();
-        postsAdapter.upsertOne(state, action.paylod);
-      })
-
-      //delete post
-      .addCase(deletePost.fulfilled, (state, action) => {
-        if (!action.payload?.id) {
-          console.log("Delete could not complete!");
-          console.log(action.payload);
-        }
-        const { id } = action.payload;
-        postsAdapter.removeOne(state, id);
-      });
-  },
+      },
+      // we are not using `invalidateTags` because we don't want to refetch the LIST/Post anytime the reaction is added
+    }),
+  }),
 });
 
-//getSelectors creates these selectors and we rename them with aliases using destructuring
+export const {
+  useGetPostsQuery,
+  useGetPostsByUserIdQuery,
+  useAddNewPostMutation,
+  useUpdatePostMutation,
+  useDeletePostMutation,
+  useAddReactionMutation,
+} = extendedApiSlice;
+
+// Returns the query result object
+
+export const selectPostsResult = extendedApiSlice.endpoints.getPosts.select();
+
+// Create memoized selector
+
+const selectPostsData = createSelector(
+  selectPostsResult,
+  (postsResult) => postsResult.data // Normalized state object with ids and entities
+);
+
+// getSelectors creates these selectors and we rename them with aliases using destructuring
 
 export const {
   selectAll: selectAllPosts,
   selectById: selectPostById,
   selectIds: selectPostIds,
   // Pass in a selector that returns the posts slice of the state
-} = postsAdapter.getSelectors((state) => state.posts);
-
-export const getPostsStatus = (state) => state.posts.status;
-export const getPostsError = (state) => state.posts.error;
-
-export const selectPostsByUser = createSelector(
-  [selectAllPosts, (state, userId) => userId],
-  (posts, userId) => posts.filter((post) => post.userId === userId)
+} = postsAdapter.getSelectors(
+  (state) => selectPostsData(state) ?? initialState
 );
-
-export const { reactionAdded } = postSlice.actions;
-
-export default postSlice.reducer;

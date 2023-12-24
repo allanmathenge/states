@@ -5,11 +5,11 @@ import "./index.css";
 import App from "./App";
 import { store } from "./app/store";
 import { Provider } from "react-redux";
-import { fetchPosts } from "./features/post/postSlice.js";
+import { extendedApiSlice } from "./features/post/postSlice";
 import { fetchUsers } from "./features/users/usersSlice";
 
+store.dispatch(extendedApiSlice.endpoints.getPosts.initiate());
 store.dispatch(fetchUsers());
-store.dispatch(fetchPosts());
 
 const root = ReactDOM.createRoot(document.getElementById("root"));
 root.render(
